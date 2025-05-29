@@ -20,6 +20,63 @@ import traceback
 import sqlite3
 import sys
 import io
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+import requests
+
+# Setup OAuth
+CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+REDIRECT_URI = "https://backend-cb98.onrender.com/auth/callback"
+SCOPES = ["profile", "email"]
+
+@app.route("/auth/google")
+def google_login():
+    flow = InstalledAppFlow.from_client_config(
+        {
+            "web": {
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "redirect_uris": [REDIRECT_URI],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token"
+            }
+        },
+        scopes=SCOPES
+    )
+    flow.redirect_uri = REDIRECT_URI
+    authorization_url, state = flow.authorization_url(
+        access_type="offline", include_granted_scopes="true"
+    )
+    return redirect(authorization_url)
+
+@app.route("/auth/callback")
+def google_callback():
+    code = request.args.get("code")
+    flow = InstalledAppFlow.from_client_config(
+        {
+            "web": {
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "redirect_uris": [REDIRECT_URI],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token"
+            }
+        },
+        scopes=SCOPES
+    )
+    flow.redirect_uri = REDIRECT_URI
+    flow.fetch_token(code=code)
+    credentials = flow.credentials
+    user_info = requests.get(
+        "https://www.googleapis.com/oauth2/v1/userinfo",
+        headers={"Authorization": f"Bearer {credentials.token}"}
+    ).json()
+    email = user_info["email"]
+    name = user_info["name"]
+    # Simpan ke database (bisa ditambahkan nanti, misalnya SQLite)
+    return redirect("https://backend-cb98.onrender.com")
 
 # Pastikan encoding UTF-8 digunakan di seluruh aplikasi
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
