@@ -1,5 +1,6 @@
 import zipfile
 import os
+port = int(os.getenv("PORT", 10000))
 import gradio as gr
 import requests
 import base64
@@ -1269,4 +1270,4 @@ with demo:
                             inputs=[user_image, user_input],
                             outputs=[ghibli_output, ghibli_msg, credit_display, ghibli_download])
 
-demo.launch(share=False)
+demo.launch(server_name="0.0.0.0", server_port=port)
