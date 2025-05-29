@@ -16,3 +16,5 @@ flask-cors==4.0.1
 datasets
 numpy
 ctranslate2
+google-auth-oauthlib==1.0.0
+google-auth==2.29.0
