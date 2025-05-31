@@ -11,7 +11,7 @@ safetensors
 torch
 accelerate
 transformers
-gunicorn
+Flask==3.0.3
 datasets
 numpy
 ctranslate2
