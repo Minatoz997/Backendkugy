@@ -1,6 +1,6 @@
 fastapi
-uvicorn[standard]
-gradio==4.44.1
+uvicorn
+gradio==4.36.0
 requests
 Pillow
 google-auth-oauthlib==1.0.0
