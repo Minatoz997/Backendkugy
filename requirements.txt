@@ -1,4 +1,5 @@
-Flask==3.0.3
+fastapi
+uvicorn[standard]
 gradio==4.44.1
 requests
 Pillow
