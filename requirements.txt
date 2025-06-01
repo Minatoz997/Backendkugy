@@ -2,6 +2,5 @@ fastapi==0.112.1
 uvicorn==0.30.6
 gradio==4.44.0
 requests
-Pillow
 google-auth-oauthlib==1.0.0
 google-auth==2.29.0
