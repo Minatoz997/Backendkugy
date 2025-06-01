@@ -1,5 +1,5 @@
 Flask==3.0.3
-gradio==3.50.2
+gradio==4.44.1
 requests
 Pillow
 google-auth-oauthlib==1.0.0
