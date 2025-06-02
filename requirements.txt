@@ -6,3 +6,5 @@ google-auth-oauthlib
 google-auth
 itsdangerous
 authlib
+starlette
+pydantic
