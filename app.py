@@ -78,7 +78,8 @@ async def auth_google_callback(request: Request):
         if not email:
             logger.error("Google OAuth: Email not found in user profile.")
             return RedirectResponse(url=f"{FRONTEND_URL}/?error=oauth_no_email")
-        return RedirectResponse(url=f"{FRONTEND_URL}/?email={email}")
+        # === UBAH REDIRECT KE /menu DI SINI ===
+        return RedirectResponse(url=f"{FRONTEND_URL}/menu?email={email}")
     except Exception as e:
         logger.error(f"Google OAuth callback error: {e}")
         return RedirectResponse(url=f"{FRONTEND_URL}/?error=oauth_failed")
