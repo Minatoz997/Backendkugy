@@ -10,16 +10,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from authlib.integrations.starlette_client import OAuth
 from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel
+from PIL import Image
+from io import BytesIO
+import base64
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Environment Variables
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://front-end-bpup.vercel.app")
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "changeme_secret_key_123456")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
+STABILITY_API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image"
 ADMIN_USERS = ["admin@kugy.ai", "testadmin"]
 
 ALLOWED_ORIGINS = [FRONTEND_URL, "http://localhost:3000"]
@@ -78,7 +84,6 @@ async def auth_google_callback(request: Request):
         if not email:
             logger.error("Google OAuth: Email not found in user profile.")
             return RedirectResponse(url=f"{FRONTEND_URL}/?error=oauth_no_email")
-        # === UBAH REDIRECT KE /menu DI SINI ===
         return RedirectResponse(url=f"{FRONTEND_URL}/menu?email={email}")
     except Exception as e:
         logger.error(f"Google OAuth callback error: {e}")
@@ -138,7 +143,6 @@ def get_credits(user_id):
     return str(result[0]) if result else "0"
 
 def add_or_init_user(user_id, user_name="User"):
-    # Berikan 75 kredit jika user_id mengandung '@' (berarti login dengan email/Gmail), selain itu tetap 25
     is_email = "@" in user_id
     default_credits = 75 if is_email else 25
     conn = sqlite3.connect("credits.db")
@@ -179,6 +183,10 @@ class ChatRequest(BaseModel):
     message: str
     model_select: str = "x-ai/grok-3-mini-beta"
 
+class ImageRequest(BaseModel):
+    user_email: str
+    prompt: str
+
 @app.post("/api/chat")
 async def ai_chat(req: ChatRequest):
     user_id = req.user_email
@@ -217,6 +225,76 @@ async def ai_chat(req: ChatRequest):
     except Exception as e:
         logger.error(f"OpenRouter error: {e}")
         return JSONResponse({"error": "AI Service Unavailable"}, status_code=503)
+
+@app.post("/api/generate-image")
+async def generate_image(req: ImageRequest):
+    """Generate image using Stability AI API"""
+    if not req.user_email:
+        return JSONResponse({"error": "UNAUTHORIZED"}, status_code=401)
+
+    if not check_credits(req.user_email, 10):  # Membutuhkan 10 kredit
+        return JSONResponse(
+            {"error": "NOT_ENOUGH_CREDITS", "message": "Need 10 credits"}, 
+            status_code=402
+        )
+
+    if not STABILITY_API_KEY:
+        return JSONResponse(
+            {"error": "API_KEY_MISSING", "message": "Stability AI API key not set"}, 
+            status_code=503
+        )
+
+    headers = {
+        "Authorization": f"Bearer {STABILITY_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "text_prompts": [{"text": req.prompt}],
+        "cfg_scale": 7,
+        "height": 1024,
+        "width": 1024,
+        "samples": 1,
+        "steps": 30
+    }
+
+    try:
+        response = requests.post(
+            STABILITY_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+        
+        print(f"Response status: {response.status_code}, Response text: {response.text}")
+        
+        if response.status_code != 200:
+            return JSONResponse(
+                {"error": f"Stability AI error: {response.text}"}, 
+                status_code=500
+            )
+
+        resp_data = response.json()
+        if "artifacts" in resp_data and resp_data["artifacts"]:
+            base64_img = resp_data["artifacts"][0]["base64"]
+            credits = get_credits(req.user_email)
+            return JSONResponse({
+                "image": base64_img,
+                "credits": credits,
+                "message": "Kugy.ai: Ini gambarnya buat ayang, cute banget kan? 🐱"
+            })
+
+        return JSONResponse(
+            {"error": "Failed to get image from Stability AI"}, 
+            status_code=500
+        )
+
+    except Exception as e:
+        print(f"Error generating image: {str(e)}")
+        return JSONResponse(
+            {"error": f"Error generating image: {str(e)}"}, 
+            status_code=500
+        )
 
 @app.get("/api/credits")
 async def api_credits(user_email: str):
