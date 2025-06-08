@@ -35,14 +35,13 @@ ALLOWED_ORIGINS = [
 
 app = FastAPI()
 
-# Perbaiki CORS Middleware dengan handle OPTIONS eksplisit
+# Perbaiki CORS Middleware dengan handle OPTIONS dan wildcard sementara
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],  # Tambah OPTIONS
-    allow_headers=["*"],  # Izinkan semua header
     allow_origins=["*"],  # Sementara pake wildcard buat tes (ganti ke ALLOWED_ORIGINS setelah stabil)
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],  # Handle preflight
+    allow_headers=["*"],
 )
 
 app.add_middleware(
