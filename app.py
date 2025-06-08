@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Environment Variables
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://bpu.vercel.app")
-SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "changeme_secret_key_123456")  # Pastikan unik dan aman
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://front-end-bpup.vercel.app")
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "changeme_secret_key_123456")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
@@ -31,26 +31,29 @@ ADMIN_USERS = ["admin@kugy.ai", "testadmin"]
 ALLOWED_ORIGINS = [
     FRONTEND_URL,
     "http://localhost:3000",
+    "https://front-end-bpup.vercel.app"
 ]
 
 app = FastAPI()
 
-# CORS Middleware
+# CORS Middleware dengan konfigurasi yang diperbarui
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,  # Kembali ke origins spesifik
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,
 )
 
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET_KEY,
-    max_age=3600,  # Set session timeout (1 jam), sesuaikan kebutuhan
+    max_age=3600,
 )
 
-# Google OAuth
+# Google OAuth setup
 oauth = OAuth()
 oauth.register(
     name='google',
@@ -59,14 +62,13 @@ oauth.register(
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
     client_kwargs={
         'scope': 'openid email profile',
-        'state': lambda: os.urandom(16).hex()  # Generate state unik per request
+        'state': lambda: os.urandom(16).hex()
     }
 )
 
 @app.get("/auth/google")
 async def login_via_google(request: Request):
     redirect_uri = request.url_for('auth_google_callback')
-    # Simpan state ke session
     state = os.urandom(16).hex()
     request.session['oauth_state'] = state
     return await oauth.google.authorize_redirect(request, redirect_uri, state=state)
@@ -74,35 +76,28 @@ async def login_via_google(request: Request):
 @app.get("/auth/google/callback")
 async def auth_google_callback(request: Request):
     try:
-        # Ambil state dari session
         expected_state = request.session.get('oauth_state')
         if not expected_state:
             logger.error("No state in session")
             return RedirectResponse(url=f"{FRONTEND_URL}/?error=no_state")
         
-        # Verifikasi state
         token = await oauth.google.authorize_access_token(request)
         actual_state = request.query_params.get('state')
         if actual_state != expected_state:
             logger.error(f"mismatching_state: Expected {expected_state}, got {actual_state}")
             return RedirectResponse(url=f"{FRONTEND_URL}/?error=csrf_warning")
         
-        # Hapus state setelah verifikasi
         del request.session['oauth_state']
 
-        # Proses token
         user = None
         email = ""
         if "userinfo" in token and token["userinfo"]:
             user = token["userinfo"]
-            print("USER FROM token['userinfo']:", user)
         elif token and "id_token" in token:
             user = await oauth.google.parse_id_token(request, token)
-            print("USER FROM id_token:", user)
         else:
             resp = await oauth.google.get('userinfo', token=token)
             user = resp.json()
-            print("USER FROM endpoint:", user)
 
         if user:
             email = user.get("email", "")
@@ -114,7 +109,7 @@ async def auth_google_callback(request: Request):
         logger.error(f"Google OAuth callback error: {e}")
         return RedirectResponse(url=f"{FRONTEND_URL}/?error=oauth_failed")
 
-# ========== DATABASE ==========
+# Database functions
 def init_db():
     conn = sqlite3.connect("credits.db")
     c = conn.cursor()
@@ -136,6 +131,7 @@ def init_db():
                 )''')
     conn.commit()
     conn.close()
+
 init_db()
 
 def check_credits(user_id, need=1):
@@ -202,7 +198,7 @@ def get_chat_history(user_id, limit=20):
         for row in rows
     ][::-1]
 
-# ========== API CHAT ==========
+# API Models
 class ChatRequest(BaseModel):
     user_email: str
     message: str
@@ -212,6 +208,7 @@ class ImageRequest(BaseModel):
     user_email: str
     prompt: str
 
+# API Endpoints
 @app.post("/api/chat")
 async def ai_chat(req: ChatRequest):
     user_id = req.user_email
@@ -254,22 +251,35 @@ async def ai_chat(req: ChatRequest):
 @app.post("/api/generate-image")
 async def generate_image(req: ImageRequest):
     """Generate image using Stability AI API"""
-    if not req.user_email:
-        return JSONResponse({"error": "UNAUTHORIZED"}, status_code=401)
+    cors_headers = {
+        "Access-Control-Allow-Origin": "https://front-end-bpup.vercel.app",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Credentials": "true"
+    }
 
-    if not check_credits(req.user_email, 10):  # Membutuhkan 10 kredit
+    if not req.user_email:
+        return JSONResponse(
+            {"error": "UNAUTHORIZED"}, 
+            status_code=401,
+            headers=cors_headers
+        )
+
+    if not check_credits(req.user_email, 10):
         return JSONResponse(
             {"error": "NOT_ENOUGH_CREDITS", "message": "Need 10 credits"}, 
-            status_code=402
+            status_code=402,
+            headers=cors_headers
         )
 
     if not STABILITY_API_KEY:
         return JSONResponse(
             {"error": "API_KEY_MISSING", "message": "Stability AI API key not set"}, 
-            status_code=503
+            status_code=503,
+            headers=cors_headers
         )
 
-    headers = {
+    stability_headers = {
         "Authorization": f"Bearer {STABILITY_API_KEY}",
         "Content-Type": "application/json"
     }
@@ -286,17 +296,16 @@ async def generate_image(req: ImageRequest):
     try:
         response = requests.post(
             STABILITY_API_URL,
-            headers=headers,
+            headers=stability_headers,
             json=payload,
             timeout=60
         )
         
-        print(f"Response status: {response.status_code}, Response text: {response.text}")
-        
         if response.status_code != 200:
             return JSONResponse(
                 {"error": f"Stability AI error: {response.text}"}, 
-                status_code=500
+                status_code=500,
+                headers=cors_headers
             )
 
         resp_data = response.json()
@@ -307,24 +316,37 @@ async def generate_image(req: ImageRequest):
                 "image": base64_img,
                 "credits": credits,
                 "message": "Kugy.ai: Ini gambarnya buat ayang, cute banget kan? 🐱"
-            })
+            }, headers=cors_headers)
 
         return JSONResponse(
             {"error": "Failed to get image from Stability AI"}, 
-            status_code=500
+            status_code=500,
+            headers=cors_headers
         )
 
     except Exception as e:
-        print(f"Error generating image: {str(e)}")
+        logger.error(f"Error generating image: {e}")
         return JSONResponse(
             {"error": f"Error generating image: {str(e)}"}, 
-            status_code=500
+            status_code=500,
+            headers=cors_headers
         )
+
+@app.options("/api/generate-image")
+async def generate_image_options():
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "https://front-end-bpup.vercel.app",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Credentials": "true"
+        }
+    )
 
 @app.post("/api/guest-login")
 async def guest_login(request: Request):
     data = await request.json()
-    print("Received guest-login data:", data)
     user_email = data.get("email")
     if not user_email:
         return JSONResponse({"error": "Email wajib diisi"}, status_code=400)
