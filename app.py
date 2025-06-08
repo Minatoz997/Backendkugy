@@ -153,7 +153,7 @@ def add_or_init_user(user_id, user_name="User"):
     conn.close()
 
 def save_chat_history(user_id, question, answer):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:S")
     conn = sqlite3.connect("credits.db")
     c = conn.cursor()
     c.execute(
@@ -295,6 +295,23 @@ async def generate_image(req: ImageRequest):
             {"error": f"Error generating image: {str(e)}"}, 
             status_code=500
         )
+
+@app.post("/api/guest-login")
+async def guest_login(request: Request):
+    data = await request.json()
+    user_email = data.get("email")
+    if not user_email:
+        return JSONResponse({"error": "Email wajib diisi"}, status_code=400)
+
+    # Simulasi login guest
+    add_or_init_user(user_email, "Guest")
+    credits = get_credits(user_email)
+    dummy_token = f"guest-token-{user_email.split('@')[0]}"
+    return JSONResponse({
+        "token": dummy_token,
+        "credits": credits,
+        "message": "Kugy.ai: Mode tamu aktif! 😺"
+    })
 
 @app.get("/api/credits")
 async def api_credits(user_email: str):
