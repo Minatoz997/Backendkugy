@@ -39,12 +39,11 @@ app = FastAPI()
 # CORS Middleware dengan konfigurasi yang diperbarui
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=3600,
+    expose_headers=["*"]
 )
 
 app.add_middleware(
@@ -53,7 +52,17 @@ app.add_middleware(
     max_age=3600,
 )
 
-# Google OAuth setup
+# Middleware khusus untuk CORS headers
+@app.middleware("http")
+async def add_cors_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+# Google OAuth
 oauth = OAuth()
 oauth.register(
     name='google',
@@ -164,8 +173,13 @@ def get_credits(user_id):
     return str(result[0]) if result else "0"
 
 def add_or_init_user(user_id, user_name="User"):
-    is_email = "@" in user_id
-    default_credits = 75 if is_email else 25
+    # Explicit check for guest user
+    if user_name == "Guest":
+        default_credits = 25  # Guest user selalu dapat 25 kredit
+    else:
+        is_email = "@" in user_id
+        default_credits = 75 if is_email else 25
+
     conn = sqlite3.connect("credits.db")
     c = conn.cursor()
     c.execute("INSERT OR IGNORE INTO users (user_id, user_name, credits, login_streak, last_login, last_guest_timestamp, last_reward_date) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -252,48 +266,50 @@ async def ai_chat(req: ChatRequest):
 async def generate_image(req: ImageRequest):
     """Generate image using Stability AI API"""
     cors_headers = {
-        "Access-Control-Allow-Origin": "https://front-end-bpup.vercel.app",
+        "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Allow-Credentials": "true"
-    }
-
-    if not req.user_email:
-        return JSONResponse(
-            {"error": "UNAUTHORIZED"}, 
-            status_code=401,
-            headers=cors_headers
-        )
-
-    if not check_credits(req.user_email, 10):
-        return JSONResponse(
-            {"error": "NOT_ENOUGH_CREDITS", "message": "Need 10 credits"}, 
-            status_code=402,
-            headers=cors_headers
-        )
-
-    if not STABILITY_API_KEY:
-        return JSONResponse(
-            {"error": "API_KEY_MISSING", "message": "Stability AI API key not set"}, 
-            status_code=503,
-            headers=cors_headers
-        )
-
-    stability_headers = {
-        "Authorization": f"Bearer {STABILITY_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "text_prompts": [{"text": req.prompt}],
-        "cfg_scale": 7,
-        "height": 1024,
-        "width": 1024,
-        "samples": 1,
-        "steps": 30
     }
 
     try:
+        if not req.user_email:
+            return JSONResponse(
+                {"error": "UNAUTHORIZED"}, 
+                status_code=401,
+                headers=cors_headers
+            )
+
+        if not check_credits(req.user_email, 10):
+            return JSONResponse(
+                {"error": "NOT_ENOUGH_CREDITS", "message": "Need 10 credits"}, 
+                status_code=402,
+                headers=cors_headers
+            )
+
+        if not STABILITY_API_KEY:
+            return JSONResponse(
+                {"error": "API_KEY_MISSING", "message": "Stability AI API key not set"}, 
+                status_code=503,
+                headers=cors_headers
+            )
+
+        stability_headers = {
+            "Authorization": f"Bearer {STABILITY_API_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+        
+        payload = {
+            "text_prompts": [{"text": req.prompt}],
+            "cfg_scale": 7,
+            "height": 1024,
+            "width": 1024,
+            "samples": 1,
+            "steps": 30
+        }
+
+        logger.info(f"Sending request to Stability AI with prompt: {req.prompt}")
+        
         response = requests.post(
             STABILITY_API_URL,
             headers=stability_headers,
@@ -301,7 +317,10 @@ async def generate_image(req: ImageRequest):
             timeout=60
         )
         
+        logger.info(f"Stability AI response status: {response.status_code}")
+        
         if response.status_code != 200:
+            logger.error(f"Stability AI error response: {response.text}")
             return JSONResponse(
                 {"error": f"Stability AI error: {response.text}"}, 
                 status_code=500,
@@ -325,7 +344,7 @@ async def generate_image(req: ImageRequest):
         )
 
     except Exception as e:
-        logger.error(f"Error generating image: {e}")
+        logger.error(f"Error generating image: {str(e)}")
         return JSONResponse(
             {"error": f"Error generating image: {str(e)}"}, 
             status_code=500,
@@ -337,10 +356,11 @@ async def generate_image_options():
     return JSONResponse(
         content={},
         headers={
-            "Access-Control-Allow-Origin": "https://front-end-bpup.vercel.app",
+            "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-            "Access-Control-Allow-Credentials": "true"
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Credentials": "true",
+            "Access-Control-Max-Age": "86400",
         }
     )
 
@@ -351,7 +371,7 @@ async def guest_login(request: Request):
     if not user_email:
         return JSONResponse({"error": "Email wajib diisi"}, status_code=400)
 
-    add_or_init_user(user_email, "Guest")
+    add_or_init_user(user_email, "Guest")  # Set user_name as "Guest" explicitly
     credits = get_credits(user_email)
     dummy_token = f"guest-token-{user_email.split('@')[0]}"
     return JSONResponse({
