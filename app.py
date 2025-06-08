@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # Environment Variables
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://front-end-bpup.vercel.app")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://bpu.vercel.app")  # Update ke domain aktif
 SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "changeme_secret_key_123456")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -28,10 +28,14 @@ STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 STABILITY_API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image"
 ADMIN_USERS = ["admin@kugy.ai", "testadmin"]
 
-ALLOWED_ORIGINS = [FRONTEND_URL, "http://localhost:3000"]
+ALLOWED_ORIGINS = [
+    FRONTEND_URL,  # Sekarang pake domain aktif
+    "http://localhost:3000",  # Tetep buat dev
+]
 
 app = FastAPI()
 
+# Perbaiki CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -65,7 +69,6 @@ async def auth_google_callback(request: Request):
     try:
         token = await oauth.google.authorize_access_token(request)
         print("TOKEN:", token)
-        # Priority: userinfo > id_token > endpoint
         user = None
         email = ""
         if "userinfo" in token and token["userinfo"]:
