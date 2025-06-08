@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # Environment Variables
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://bpu.vercel.app")  # Pastikan bener
-SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "changeme_secret_key_123456")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://bpu.vercel.app")
+SESSION_SECRET_KEY = os.getenv("SESSION_SECRET_KEY", "changeme_secret_key_123456")  # Pastikan unik dan aman
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
@@ -35,40 +35,62 @@ ALLOWED_ORIGINS = [
 
 app = FastAPI()
 
-# Perbaiki CORS Middleware dengan handle OPTIONS dan wildcard sementara
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Sementara pake wildcard buat tes (ganti ke ALLOWED_ORIGINS setelah stabil)
+    allow_origins=ALLOWED_ORIGINS,  # Kembali ke origins spesifik
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],  # Handle preflight
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
 app.add_middleware(
     SessionMiddleware,
     secret_key=SESSION_SECRET_KEY,
+    max_age=3600,  # Set session timeout (1 jam), sesuaikan kebutuhan
 )
 
-# ========== GOOGLE OAUTH ==========
+# Google OAuth
 oauth = OAuth()
 oauth.register(
     name='google',
     client_id=GOOGLE_CLIENT_ID,
     client_secret=GOOGLE_CLIENT_SECRET,
     server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
-    client_kwargs={'scope': 'openid email profile'}
+    client_kwargs={
+        'scope': 'openid email profile',
+        'state': lambda: os.urandom(16).hex()  # Generate state unik per request
+    }
 )
 
 @app.get("/auth/google")
 async def login_via_google(request: Request):
     redirect_uri = request.url_for('auth_google_callback')
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    # Simpan state ke session
+    state = os.urandom(16).hex()
+    request.session['oauth_state'] = state
+    return await oauth.google.authorize_redirect(request, redirect_uri, state=state)
 
 @app.get("/auth/google/callback")
 async def auth_google_callback(request: Request):
     try:
+        # Ambil state dari session
+        expected_state = request.session.get('oauth_state')
+        if not expected_state:
+            logger.error("No state in session")
+            return RedirectResponse(url=f"{FRONTEND_URL}/?error=no_state")
+        
+        # Verifikasi state
         token = await oauth.google.authorize_access_token(request)
-        print("TOKEN:", token)
+        actual_state = request.query_params.get('state')
+        if actual_state != expected_state:
+            logger.error(f"mismatching_state: Expected {expected_state}, got {actual_state}")
+            return RedirectResponse(url=f"{FRONTEND_URL}/?error=csrf_warning")
+        
+        # Hapus state setelah verifikasi
+        del request.session['oauth_state']
+
+        # Proses token
         user = None
         email = ""
         if "userinfo" in token and token["userinfo"]:
@@ -302,12 +324,11 @@ async def generate_image(req: ImageRequest):
 @app.post("/api/guest-login")
 async def guest_login(request: Request):
     data = await request.json()
-    print("Received guest-login data:", data)  # Tambah log buat debug
+    print("Received guest-login data:", data)
     user_email = data.get("email")
     if not user_email:
         return JSONResponse({"error": "Email wajib diisi"}, status_code=400)
 
-    # Simulasi login guest
     add_or_init_user(user_email, "Guest")
     credits = get_credits(user_email)
     dummy_token = f"guest-token-{user_email.split('@')[0]}"
