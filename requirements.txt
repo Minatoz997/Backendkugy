@@ -10,3 +10,4 @@ starlette
 pydantic
 python-multipart
 Pillow
+httpx==0.24.1
