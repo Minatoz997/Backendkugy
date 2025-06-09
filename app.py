@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from PIL import Image
 from io import BytesIO
 import base64
+import httpx
+from typing import Optional, Dict, Any
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,6 +29,9 @@ OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 STABILITY_API_URL = "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image"
 ADMIN_USERS = ["admin@kugy.ai", "testadmin"]
+# Tambahan environment variable untuk WANZ Store
+WANZ_API_KEY = os.getenv("WANZ_API_KEY")
+WANZ_API_URL = "https://wanz.store/api"
 
 ALLOWED_ORIGINS = [
     FRONTEND_URL,
@@ -122,6 +127,7 @@ async def auth_google_callback(request: Request):
 def init_db():
     conn = sqlite3.connect("credits.db")
     c = conn.cursor()
+    # Tabel yang sudah ada
     c.execute('''CREATE TABLE IF NOT EXISTS users (
                     user_id TEXT PRIMARY KEY,
                     user_name TEXT,
@@ -137,6 +143,25 @@ def init_db():
                     question TEXT,
                     answer TEXT,
                     created_at TEXT
+                )''')
+    # Tabel baru untuk Virtual SIMs
+    c.execute('''CREATE TABLE IF NOT EXISTS virtual_numbers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    phone_number TEXT,
+                    provider TEXT,
+                    purchase_date TEXT,
+                    status TEXT,
+                    price INTEGER
+                )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS number_purchases (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id TEXT,
+                    phone_number TEXT,
+                    provider TEXT,
+                    price INTEGER,
+                    purchase_date TEXT,
+                    status TEXT
                 )''')
     conn.commit()
     conn.close()
@@ -221,6 +246,11 @@ class ChatRequest(BaseModel):
 class ImageRequest(BaseModel):
     user_email: str
     prompt: str
+
+class VirtualSimPurchase(BaseModel):
+    phone_number: str
+    provider: str
+    user_email: str
 
 # API Endpoints
 @app.post("/api/chat")
@@ -395,6 +425,159 @@ async def api_history(user_email: str = Query(...), limit: int = Query(20, le=10
 @app.get("/")
 async def root():
     return {"status": "ok", "message": "API is running"}
+
+# WANZ Store Service
+class WanzService:
+    def __init__(self):
+        self.api_key = WANZ_API_KEY
+        self.base_url = WANZ_API_URL
+        self.headers = {
+            "Authorization": self.api_key,
+            "Content-Type": "application/json"
+        }
+
+    async def get_available_numbers(self) -> Dict[str, Any]:
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.base_url}/virtual-sims/available",
+                    headers=self.headers
+                )
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPError as e:
+                logger.error(f"Error fetching available numbers: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+    async def purchase_number(self, phone_number: str, provider: str) -> Dict[str, Any]:
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    f"{self.base_url}/virtual-sims/purchase",
+                    headers=self.headers,
+                    json={
+                        "phone_number": phone_number,
+                        "provider": provider
+                    }
+                )
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPError as e:
+                logger.error(f"Error purchasing number: {e}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+# Initialize WANZ Store service
+wanz_service = WanzService()
+
+# Helper function untuk menyimpan riwayat pembelian
+def save_number_purchase(user_id: str, phone_number: str, provider: str, price: int, status: str):
+    conn = sqlite3.connect("credits.db")
+    c = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    try:
+        c.execute(
+            """INSERT INTO number_purchases 
+               (user_id, phone_number, provider, price, purchase_date, status) 
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (user_id, phone_number, provider, price, now, status)
+        )
+        conn.commit()
+    except Exception as e:
+        logger.error(f"Error saving number purchase: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+# Virtual SIMs endpoints
+@app.get("/api/virtual-sims/available")
+async def get_available_numbers():
+    try:
+        numbers = await wanz_service.get_available_numbers()
+        return JSONResponse(numbers)
+    except Exception as e:
+        logger.error(f"Error in get_available_numbers: {e}")
+        return JSONResponse(
+            {"error": "Failed to fetch available numbers"},
+            status_code=500
+        )
+
+@app.post("/api/virtual-sims/purchase")
+async def purchase_number(request: VirtualSimPurchase):
+    try:
+        # Check credits
+        if not check_credits(request.user_email, 25):
+            return JSONResponse(
+                {"error": "NOT_ENOUGH_CREDITS", "message": "Need 25 credits"},
+                status_code=402
+            )
+
+        # Process purchase
+        result = await wanz_service.purchase_number(
+            request.phone_number,
+            request.provider
+        )
+
+        # Save purchase history
+        save_number_purchase(
+            request.user_email,
+            request.phone_number,
+            request.provider,
+            25,  # price in credits
+            "completed"
+        )
+
+        # Get updated credits
+        credits = get_credits(request.user_email)
+
+        return JSONResponse({
+            "status": "success",
+            "data": result,
+            "credits": credits,
+            "message": "Number purchased successfully"
+        })
+    except Exception as e:
+        logger.error(f"Error in purchase_number: {e}")
+        return JSONResponse(
+            {"error": "Failed to purchase number"},
+            status_code=500
+        )
+
+@app.get("/api/virtual-sims/history")
+async def get_purchase_history(user_email: str = Query(...)):
+    try:
+        conn = sqlite3.connect("credits.db")
+        c = conn.cursor()
+        
+        c.execute(
+            """SELECT phone_number, provider, price, purchase_date, status 
+               FROM number_purchases 
+               WHERE user_id = ? 
+               ORDER BY purchase_date DESC""",
+            (user_email,)
+        )
+        
+        rows = c.fetchall()
+        conn.close()
+        
+        history = [
+            {
+                "phone_number": row[0],
+                "provider": row[1],
+                "price": row[2],
+                "purchase_date": row[3],
+                "status": row[4]
+            }
+            for row in rows
+        ]
+        
+        return JSONResponse({"history": history})
+    except Exception as e:
+        logger.error(f"Error getting purchase history: {e}")
+        return JSONResponse(
+            {"error": "Failed to fetch purchase history"},
+            status_code=500
+        )
 
 if __name__ == "__main__":
     import uvicorn
