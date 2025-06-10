@@ -2,6 +2,7 @@ import base64
 import logging
 import os
 import time
+import uvicorn
 from datetime import datetime
 from io import BytesIO
 from typing import Any, Dict, List, Optional
@@ -446,7 +447,7 @@ async def get_virtusim_services(country: str = Query("Indonesia"), service: str 
                 "status": "success",
                 "data": result.get("data", []),
                 "contact": result.get("contact"),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": "2025-06-10 19:25:08",
                 "user": "lillysummer9794",
             }
         )
@@ -456,7 +457,7 @@ async def get_virtusim_services(country: str = Query("Indonesia"), service: str 
             {
                 "status": "error",
                 "message": str(e),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": "2025-06-10 19:25:08",
                 "user": "lillysummer9794",
             },
             status_code=500,
@@ -472,7 +473,7 @@ async def get_virtusim_countries():
             {
                 "status": "success",
                 "data": countries,
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": "2025-06-10 19:25:08",
                 "user": "lillysummer9794",
             }
         )
@@ -482,7 +483,7 @@ async def get_virtusim_countries():
             {
                 "status": "error",
                 "message": str(e),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": "2025-06-10 19:25:08",
                 "user": "lillysummer9794",
             },
             status_code=500,
@@ -499,7 +500,7 @@ async def purchase_virtusim_service(purchase: VirtuSimPurchase):
                 {
                     "status": "error",
                     "message": "Service not available for selected country",
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": "2025-06-10 19:25:08",
                     "user": purchase.user_email,
                 },
                 status_code=400,
@@ -519,7 +520,7 @@ async def purchase_virtusim_service(purchase: VirtuSimPurchase):
                     "status": service_details["status"],
                 },
                 "contact": {"whatsapp": "wa.me/+628xxxxxxxx", "discord": "discord.gg/xxxxx"},
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": "2025-06-10 19:25:08",
                 "user": purchase.user_email,
             }
         )
@@ -529,7 +530,7 @@ async def purchase_virtusim_service(purchase: VirtuSimPurchase):
             {
                 "status": "error",
                 "message": str(e),
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "timestamp": "2025-06-10 19:25:08",
                 "user": purchase.user_email,
             },
             status_code=500,
@@ -575,10 +576,11 @@ async def root():
     return {
         "status": "ok",
         "message": "API is running",
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": "2025-06-10 19:25:08",
         "user": "lillysummer9794",
     }
 
 
 if __name__ == "__main__":
-    import 
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)
