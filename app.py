@@ -226,25 +226,30 @@ class VirtuSimService:
             try:
                 params = {
                     "api_key": self.api_key,
-                    "action": "services",
-                    "country": country,
-                    "service": service,
+                    "action": "services"
                 }
+                if country:
+                    params["country"] = country
+                if service:
+                    params["service"] = service
+
                 response = await client.get(f"{self.base_url}/json.php", params=params)
                 response.raise_for_status()
                 services_data = response.json()
 
                 services = [
                     {
-                        "service_id": service.get("service"),
-                        "name": service.get("name", "Unknown Service"),
-                        "description": f"Verifikasi {service.get('name', 'Service')} dengan nomor virtual",
-                        "price": service.get("price", "Contact Admin"),
-                        "price_formatted": f"Rp {float(service.get('price', 0)):,.2f}",
-                        "available_numbers": service.get("available", 0),
-                        "country": country,
-                        "status": "Available" if service.get("available", 0) > 0 else "Out of Stock",
+                        "service_id": service["id"],
+                        "name": service["name"],
+                        "description": f"Verifikasi {service['name']} dengan nomor virtual",
+                        "price": service["price"],
+                        "price_formatted": f"Rp {float(service['price']):,.2f}",
+                        "available_numbers": service["tersedia"],
+                        "country": service["country"],
+                        "status": "available" if service["status"] == "1" else "unavailable",
                         "duration": "48 jam",
+                        "is_promo": service.get("is_promo") == "1",
+                        "category": service.get("category", "OTP")
                     }
                     for service in services_data.get("data", [])
                 ]
@@ -253,7 +258,8 @@ class VirtuSimService:
                     "status": "success",
                     "data": services,
                     "contact": {"whatsapp": "wa.me/+628xxxxxxxx", "discord": "discord.gg/xxxxx"},
-                    "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "user": "lillysummer9794"
                 }
             except Exception as e:
                 logger.error(f"Error fetching VirtuSim services: {e}")
@@ -575,7 +581,4 @@ async def root():
 
 
 if __name__ == "__main__":
-    import uvicorn
-
-    port = int(os.environ.get("PORT", 8080))
-    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=True)
+    import 
