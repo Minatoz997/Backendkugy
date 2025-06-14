@@ -1,6 +1,7 @@
 import base64
 import logging
 import os
+import sqlite3
 import sys
 import time
 import uuid
@@ -88,7 +89,6 @@ async def ensure_db_and_log():
     try:
         setup_logging()
         if DATABASE_URL.startswith("sqlite"):
-            import sqlite3
             with sqlite3.connect(DATABASE_URL.replace("sqlite:///", "")) as conn:
                 c = conn.cursor()
                 c.execute('''
@@ -1141,6 +1141,19 @@ async def get_user(user: dict = Depends(get_current_user)):
 @app.post("/auth/guest", tags=["Authentication"])
 async def guest_login(request: Request):
     """Create guest session."""
+    guest_id = f"guest_{int(time.time())}"
+    request.session["user"] = {"email": guest_id, "name": "Guest User", "authenticated": False}
+    await add_or_init_user(guest_id, "Guest User")
+    return {
+        "success": True,
+        "user": request.session["user"],
+        "authenticated": False,
+        "credits": await get_credits(guest_id)
+    }
+
+@app.post("/api/guest-login", tags=["Authentication"])
+async def api_guest_login(request: Request):
+    """Create guest session via API endpoint."""
     guest_id = f"guest_{int(time.time())}"
     request.session["user"] = {"email": guest_id, "name": "Guest User", "authenticated": False}
     await add_or_init_user(guest_id, "Guest User")
