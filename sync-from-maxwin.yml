@@ -1,0 +1,23 @@
+name: Sync from maxwin66/Backend
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Sync setiap 6 jam
+  workflow_dispatch:        # Bisa dijalankan manual dari tab Actions
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kode kamu
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Tambahkan remote dari repo maxwin66
+        run: |
+          git remote add upstream https://github.com/maxwin66/Backend.git
+          git fetch upstream
+          git merge upstream/main --allow-unrelated-histories -m "🌀 Auto-merge from maxwin66/Backend"
+          git push origin main
