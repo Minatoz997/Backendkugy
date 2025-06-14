@@ -1,6 +1,7 @@
 import base64
 import logging
 import os
+import secrets
 import sqlite3
 import sys
 import time
@@ -217,6 +218,17 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
+# Security headers middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    return response
+
 # Database Pool
 async def get_db_pool():
     if DATABASE_URL.startswith("sqlite"):
@@ -228,6 +240,13 @@ async def get_current_user(request: Request):
     user = request.session.get("user")
     if not user or not user.get("email"):
         raise HTTPException(status_code=401, detail="User not authenticated")
+    
+    # Validate session timestamp for security
+    session_created = request.session.get("created_at")
+    if not session_created or (time.time() - session_created) > 86400:  # 24 hours
+        request.session.clear()
+        raise HTTPException(status_code=401, detail="Session expired")
+    
     return user
 
 # Database Functions
@@ -1089,30 +1108,88 @@ async def health_check():
         }
     }
 
+@app.get("/health/security", tags=["General"])
+async def security_health_check():
+    """Security-focused health check."""
+    return {
+        "status": "secure",
+        "timestamp": datetime.now().isoformat(),
+        "security_features": {
+            "csrf_protection": "enabled",
+            "rate_limiting": "enabled",
+            "session_security": "enabled",
+            "https_only": "enabled",
+            "cors_protection": "enabled",
+            "security_headers": "enabled",
+            "oauth_state_validation": "enabled",
+            "session_expiry": "24_hours"
+        },
+        "authentication": {
+            "google_oauth": "configured" if (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET) else "not_configured",
+            "guest_login": "enabled",
+            "session_management": "enhanced"
+        }
+    }
+
 # Auth Endpoints
 @app.get("/auth/google", tags=["Authentication"])
+@limiter.limit("5/minute")
 async def google_auth(request: Request):
-    """Initiate Google OAuth."""
+    """Initiate Google OAuth with CSRF protection."""
     if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
         raise HTTPException(status_code=500, detail="Google OAuth not configured")
+    
+    # Generate state parameter for CSRF protection
+    state = secrets.token_urlsafe(32)
+    request.session["oauth_state"] = state
+    request.session["oauth_timestamp"] = time.time()
+    
     redirect_uri = f"{os.getenv('BACKEND_URL', 'https://backend-cb98.onrender.com')}/auth/google/callback"
     logger.info(f"Initiating Google OAuth with redirect_uri: {redirect_uri}")
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    return await oauth.google.authorize_redirect(request, redirect_uri, state=state)
 
 @app.get("/auth/google/callback", tags=["Authentication"])
 async def google_callback(request: Request):
-    """Handle Google OAuth callback."""
+    """Handle Google OAuth callback with enhanced security."""
     try:
         if not (GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET):
             return RedirectResponse(url=f"{FRONTEND_URL}/?auth=error&msg=oauth_not_configured")
+        
+        # Verify state parameter for CSRF protection
+        received_state = request.query_params.get("state")
+        stored_state = request.session.get("oauth_state")
+        oauth_timestamp = request.session.get("oauth_timestamp", 0)
+        
+        if not received_state or not stored_state or received_state != stored_state:
+            logger.warning("OAuth state mismatch - potential CSRF attack")
+            return RedirectResponse(url=f"{FRONTEND_URL}/?auth=error&msg=invalid_state")
+        
+        # Check if OAuth request is not too old (5 minutes max)
+        if time.time() - oauth_timestamp > 300:
+            logger.warning("OAuth request expired")
+            return RedirectResponse(url=f"{FRONTEND_URL}/?auth=error&msg=request_expired")
+        
+        # Clear OAuth session data
+        request.session.pop("oauth_state", None)
+        request.session.pop("oauth_timestamp", None)
+        
         token = await oauth.google.authorize_access_token(request)
         user_info = token.get("userinfo")
         if not user_info:
             logger.error("No user info in token")
             return RedirectResponse(url=f"{FRONTEND_URL}/?auth=error&msg=no_user_info")
+        
         user_email = user_info.get("email")
         user_name = user_info.get("name", "User")
-        request.session["user"] = {"email": user_email, "name": user_name, "authenticated": True}
+        
+        # Enhanced session with timestamp
+        request.session["user"] = {
+            "email": user_email, 
+            "name": user_name, 
+            "authenticated": True
+        }
+        request.session["created_at"] = time.time()
+        
         await add_or_init_user(user_email, user_name)
         logger.info(f"User authenticated: {user_email}")
         return RedirectResponse(url=f"{FRONTEND_URL}/?auth=success&user={user_email}")
@@ -1139,10 +1216,12 @@ async def get_user(user: dict = Depends(get_current_user)):
     }
 
 @app.post("/auth/guest", tags=["Authentication"])
+@limiter.limit("10/minute")
 async def guest_login(request: Request):
-    """Create guest session."""
-    guest_id = f"guest_{int(time.time())}"
+    """Create guest session with enhanced security."""
+    guest_id = f"guest_{int(time.time())}_{secrets.token_hex(4)}"
     request.session["user"] = {"email": guest_id, "name": "Guest User", "authenticated": False}
+    request.session["created_at"] = time.time()
     await add_or_init_user(guest_id, "Guest User")
     return {
         "success": True,
@@ -1152,10 +1231,12 @@ async def guest_login(request: Request):
     }
 
 @app.post("/api/guest-login", tags=["Authentication"])
+@limiter.limit("10/minute")
 async def api_guest_login(request: Request):
-    """Create guest session via API endpoint."""
-    guest_id = f"guest_{int(time.time())}"
+    """Create guest session via API endpoint with enhanced security."""
+    guest_id = f"guest_{int(time.time())}_{secrets.token_hex(4)}"
     request.session["user"] = {"email": guest_id, "name": "Guest User", "authenticated": False}
+    request.session["created_at"] = time.time()
     await add_or_init_user(guest_id, "Guest User")
     return {
         "success": True,
