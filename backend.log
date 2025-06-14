@@ -1,0 +1,25 @@
+2025-06-14 07:24:49.745 | INFO     | __main__:<module>:40 - SESSION_SECRET_KEY: c13d4...
+2025-06-14 07:24:49.745 | INFO     | __main__:<module>:41 - VIRTUSIM_API_KEY not set
+2025-06-14 07:24:49.745 | INFO     | __main__:<module>:42 - FRONTEND_URL: https://front-end-bpup.vercel.app
+2025-06-14 07:24:49.745 | INFO     | __main__:<module>:43 - DATABASE_URL: sqlite:///credits.db
+2025-06-14 07:24:49.745 | WARNING  | __main__:<module>:380 - Google OAuth not configured
+/workspace/Backend/app.py:1491: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+2025-06-14 07:24:49.769 | INFO     | app:<module>:40 - SESSION_SECRET_KEY: 012b1...
+2025-06-14 07:24:49.769 | INFO     | app:<module>:41 - VIRTUSIM_API_KEY not set
+2025-06-14 07:24:49.769 | INFO     | app:<module>:42 - FRONTEND_URL: https://front-end-bpup.vercel.app
+2025-06-14 07:24:49.769 | INFO     | app:<module>:43 - DATABASE_URL: sqlite:///credits.db
+2025-06-14 07:24:49.769 | WARNING  | app:<module>:380 - Google OAuth not configured
+INFO:     Started server process [772]
+INFO:     Waiting for application startup.
+2025-06-14T07:24:49.792003+0000 INFO Database and log file initialized successfully
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:5000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:38950 - "GET /api/health HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:51298 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:37956 - "GET /multi-agent/status HTTP/1.1" 200 OK
